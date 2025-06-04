@@ -40,3 +40,7 @@ fflag replace DFIntMyCustomFlag 456
 fflag remove DFIntMyCustomFlag
 fflag list
 ```
+
+---
+
+Note: Precompiled versions of fflag are not guaranteed to work
