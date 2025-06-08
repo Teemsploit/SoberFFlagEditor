@@ -16,8 +16,11 @@ jobs:
     - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libjson-c-dev
 
-    - name: Build
-      run: gcc $(pkg-config --cflags --libs json-c) -o fflag SoberFFlagEditor.c
+    - name: Compile with json-c
+      run: |
+        CFLAGS="$(pkg-config --cflags json-c)"
+        LDFLAGS="$(pkg-config --libs json-c)"
+        gcc $CFLAGS SoberFFlagEditor.c $LDFLAGS -o fflag
 
-    - name: Run fflag list (test)
+    - name: Run fflag list (basic test)
       run: ./fflag list
