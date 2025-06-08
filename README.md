@@ -27,12 +27,15 @@
    sudo cp fflag /usr/local/bin/
    sudo chmod +x /usr/local/bin/fflag
    ```
+
 ## Or
+
 ```bash
 git clone https://github.com/Teemsploit/SoberFFlagEditor.git
 cd SoberFFlagEditor
 ./install.sh
 ```
+
 You can now run `fflag` like any other command.
 
 ---
