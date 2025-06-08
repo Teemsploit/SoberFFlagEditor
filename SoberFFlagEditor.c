@@ -8,21 +8,21 @@
 #include <sys/stat.h>
 #include <limits.h>
 
-#define REL_PATH "/.var/app/org.vinegarhq.Sober/config/sober/config.json"
+#define relPath "/.var/app/org.vinegarhq.Sober/config/sober/config.json"
 
-static char *get_config_path(void) {
+static char *getConfigPath(void) {
     const char *home = getenv("HOME");
     if (!home) {
         struct passwd *pw = getpwuid(getuid());
         home = (pw ? pw->pw_dir : NULL);
     }
-    size_t len = strlen(home) + strlen(REL_PATH) + 1;
+    size_t len = strlen(home) + strlen(relPath) + 1;
     char *full = malloc(len);
-    snprintf(full, len, "%s%s", home, REL_PATH);
+    snprintf(full, len, "%s%s", home, relPath);
     return full;
 }
 
-static void ensure_parent_dirs(const char *path) {
+static void ensureParentDirs(const char *path) {
     char *copy = strdup(path);
     char *slash = strrchr(copy, '/');
     if (slash) {
@@ -33,9 +33,9 @@ static void ensure_parent_dirs(const char *path) {
         strcpy(accum, "/");
         for (char *q = p; *q; q++) {
             if (*q == '/') {
-                size_t len_acc = strlen(accum);
+                size_t lenAcc = strlen(accum);
                 strncat(accum, p, (q - p));
-                accum[len_acc + (q - p)] = '\0';
+                accum[lenAcc + (q - p)] = '\0';
                 if (mkdir(accum, 0755) != 0 && errno != EEXIST) {
                     free(copy);
                     exit(1);
@@ -55,9 +55,9 @@ static void ensure_parent_dirs(const char *path) {
     free(copy);
 }
 
-static void ensure_config_exists(const char *path) {
+static void ensureConfigExists(const char *path) {
     if (access(path, F_OK) == 0) return;
-    ensure_parent_dirs(path);
+    ensureParentDirs(path);
     json_object *root = json_object_new_object();
     json_object *ff = json_object_new_object();
     json_object_object_add(root, "fflags", ff);
@@ -72,7 +72,7 @@ static void ensure_config_exists(const char *path) {
     json_object_put(root);
 }
 
-static json_object *load_config(const char *path) {
+static json_object *loadConfig(const char *path) {
     FILE *fp = fopen(path, "r");
     if (!fp) exit(1);
     fseek(fp, 0, SEEK_END);
@@ -94,7 +94,7 @@ static json_object *load_config(const char *path) {
     return root;
 }
 
-static void save_config(const char *path, json_object *root) {
+static void saveConfig(const char *path, json_object *root) {
     const char *out = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY);
     FILE *fp = fopen(path, "w");
     if (!fp) exit(1);
@@ -102,7 +102,7 @@ static void save_config(const char *path, json_object *root) {
     fclose(fp);
 }
 
-static void print_help(const char *prog) {
+static void printHelp(const char *prog) {
     printf(
         "Usage:\n"
         "  %s add     <FLAG_KEY> <VALUE>\n"
@@ -116,8 +116,8 @@ static void print_help(const char *prog) {
     );
 }
 
-static void cmd_list(const char *config_path) {
-    json_object *root = load_config(config_path);
+static void cmdList(const char *configPath) {
+    json_object *root = loadConfig(configPath);
     json_object *ff;
     if (json_object_object_get_ex(root, "fflags", &ff) &&
         json_object_get_type(ff) == json_type_object) {
@@ -128,8 +128,8 @@ static void cmd_list(const char *config_path) {
     json_object_put(root);
 }
 
-static void cmd_add(const char *config_path, const char *key, const char *value) {
-    json_object *root = load_config(config_path);
+static void cmdAdd(const char *configPath, const char *key, const char *value) {
+    json_object *root = loadConfig(configPath);
     json_object *ff;
     if (!json_object_object_get_ex(root, "fflags", &ff) ||
         json_object_get_type(ff) != json_type_object) {
@@ -142,12 +142,12 @@ static void cmd_add(const char *config_path, const char *key, const char *value)
         json_object *val = json_object_new_string(value);
         json_object_object_add(ff, key, val);
     }
-    save_config(config_path, root);
+    saveConfig(configPath, root);
     json_object_put(root);
 }
 
-static void cmd_replace(const char *config_path, const char *key, const char *value) {
-    json_object *root = load_config(config_path);
+static void cmdReplace(const char *configPath, const char *key, const char *value) {
+    json_object *root = loadConfig(configPath);
     json_object *ff;
     if (json_object_object_get_ex(root, "fflags", &ff) &&
         json_object_get_type(ff) == json_type_object) {
@@ -157,69 +157,69 @@ static void cmd_replace(const char *config_path, const char *key, const char *va
             json_object_object_add(ff, key, val);
         }
     }
-    save_config(config_path, root);
+    saveConfig(configPath, root);
     json_object_put(root);
 }
 
-static void cmd_remove(const char *config_path, const char *key) {
-    json_object *root = load_config(config_path);
+static void cmdRemove(const char *configPath, const char *key) {
+    json_object *root = loadConfig(configPath);
     json_object *ff;
     if (json_object_object_get_ex(root, "fflags", &ff) &&
         json_object_get_type(ff) == json_type_object) {
         json_object_object_del(ff, key);
     }
-    save_config(config_path, root);
+    saveConfig(configPath, root);
     json_object_put(root);
 }
 
-static void cmd_clear(const char *config_path) {
-    json_object *root = load_config(config_path);
+static void cmdClear(const char *configPath) {
+    json_object *root = loadConfig(configPath);
     json_object *ff = json_object_new_object();
     json_object_object_add(root, "fflags", ff);
-    save_config(config_path, root);
+    saveConfig(configPath, root);
     json_object_put(root);
 }
 
-static void cmd_path(const char *config_path) {
-    printf("%s\n", config_path);
+static void cmdPath(const char *configPath) {
+    printf("%s\n", configPath);
 }
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        print_help(argv[0]);
+        printHelp(argv[0]);
         return 1;
     }
 
-    char *config_path = get_config_path();
-    ensure_config_exists(config_path);
+    char *configPath = getConfigPath();
+    ensureConfigExists(configPath);
 
     if (strcmp(argv[1], "add") == 0 && argc == 4) {
-        cmd_add(config_path, argv[2], argv[3]);
+        cmdAdd(configPath, argv[2], argv[3]);
     }
     else if (strcmp(argv[1], "replace") == 0 && argc == 4) {
-        cmd_replace(config_path, argv[2], argv[3]);
+        cmdReplace(configPath, argv[2], argv[3]);
     }
     else if (strcmp(argv[1], "remove") == 0 && argc == 3) {
-        cmd_remove(config_path, argv[2]);
+        cmdRemove(configPath, argv[2]);
     }
     else if (strcmp(argv[1], "list") == 0 && argc == 2) {
-        cmd_list(config_path);
+        cmdList(configPath);
     }
     else if (strcmp(argv[1], "clear") == 0 && argc == 2) {
-        cmd_clear(config_path);
+        cmdClear(configPath);
     }
     else if (strcmp(argv[1], "path") == 0 && argc == 2) {
-        cmd_path(config_path);
+        cmdPath(configPath);
     }
     else if (strcmp(argv[1], "help") == 0 && argc == 2) {
-        print_help(argv[0]);
+        printHelp(argv[0]);
     }
     else {
-        print_help(argv[0]);
-        free(config_path);
+        printHelp(argv[0]);
+        free(configPath);
         return 1;
     }
 
-    free(config_path);
+    free(configPath);
     return 0;
 }
