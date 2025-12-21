@@ -8,73 +8,65 @@
 #include <sys/stat.h>
 #include <limits.h>
 
-#define relPath "/.var/app/org.vinegarhq.Sober/config/sober/config.json"
+#define REL_PATH "/.var/app/org.vinegarhq.Sober/config/sober/config.json"
 
-static char *getConfigPath(void) {
+const char *ALLOWED_FLAGS[] = {
+    "FFlagRenderDebugCheckThreading2", "FFlagMovePrerenderV2", "FFlagMovePrerender",
+    "FFlagDebugCheckRenderThreading", "FFlagFastGPULightCulling3", "FFlagDebugForceFSMCPULightCulling",
+    "FIntTaskSchedulerThreadMin", "FIntRuntimeMaxNumOfThreads", "DFIntTaskSchedulerTargetFps",
+    "DFFlagSkipHighResolutiontextureMipsOnLowMemoryDevices", "DFFlagSkipHighResolutiontextureMipsOnLowMemoryDevices2",
+    "FFlagDebugGraphicsDisableDirect3D11", "DFIntCanHideGuiGroupId", "FFlagTaskSchedulerLimitTargetFpsTo2402",
+    "DFIntRuntimeConcurrency",
+    NULL // Null terminator for easy iteration
+};
+
+static int is_flag_allowed(const char *key) {
+    for (int i = 0; ALLOWED_FLAGS[i] != NULL; i++) {
+        if (strcmp(key, ALLOWED_FLAGS[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+static char *get_config_path(void) {
     const char *home = getenv("HOME");
     if (!home) {
         struct passwd *pw = getpwuid(getuid());
         home = (pw ? pw->pw_dir : NULL);
     }
-    size_t len = strlen(home) + strlen(relPath) + 1;
+    if (!home) return NULL;
+
+    size_t len = strlen(home) + strlen(REL_PATH) + 1;
     char *full = malloc(len);
-    snprintf(full, len, "%s%s", home, relPath);
+    snprintf(full, len, "%s%s", home, REL_PATH);
     return full;
 }
 
-static void ensureParentDirs(const char *path) {
-    char *copy = strdup(path);
-    char *slash = strrchr(copy, '/');
-    if (slash) {
-        *slash = '\0';
-        char accum[PATH_MAX] = {0};
-        char *p = copy;
-        while (*p == '/') p++;
-        strcpy(accum, "/");
-        for (char *q = p; *q; q++) {
-            if (*q == '/') {
-                size_t lenAcc = strlen(accum);
-                strncat(accum, p, (q - p));
-                accum[lenAcc + (q - p)] = '\0';
-                if (mkdir(accum, 0755) != 0 && errno != EEXIST) {
-                    free(copy);
-                    exit(1);
-                }
-                strcat(accum, "/");
-                p = q + 1;
-            }
-        }
-        if (*p) {
-            strcat(accum, p);
-            if (mkdir(accum, 0755) != 0 && errno != EEXIST) {
-                free(copy);
-                exit(1);
-            }
+static void ensure_directories(const char *path) {
+    char tmp[PATH_MAX];
+    char *p = NULL;
+    size_t len;
+
+    snprintf(tmp, sizeof(tmp), "%s", path);
+    len = strlen(tmp);
+    if (tmp[len - 1] == '/') tmp[len - 1] = 0;
+
+    for (p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = 0;
+            mkdir(tmp, S_IRWXU);
+            *p = '/';
         }
     }
-    free(copy);
 }
 
-static void ensureConfigExists(const char *path) {
-    if (access(path, F_OK) == 0) return;
-    ensureParentDirs(path);
-    json_object *root = json_object_new_object();
-    json_object *ff = json_object_new_object();
-    json_object_object_add(root, "fflags", ff);
-    const char *out = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY);
-    FILE *fp = fopen(path, "w");
-    if (!fp) {
-        json_object_put(root);
-        exit(1);
-    }
-    fputs(out, fp);
-    fclose(fp);
-    json_object_put(root);
-}
-
-static json_object *loadConfig(const char *path) {
+static json_object *load_config(const char *path) {
     FILE *fp = fopen(path, "r");
-    if (!fp) exit(1);
+    if (!fp) {
+        json_object *root = json_object_new_object();
+        json_object_object_add(root, "fflags", json_object_new_object());
+        return root;
+    }
+
     fseek(fp, 0, SEEK_END);
     long sz = ftell(fp);
     fseek(fp, 0, SEEK_SET);
@@ -85,141 +77,85 @@ static json_object *loadConfig(const char *path) {
 
     json_object *root = json_tokener_parse(data);
     free(data);
-    if (!root || json_object_get_type(root) != json_type_object) {
+
+    if (!root || !json_object_is_type(root, json_type_object)) {
         if (root) json_object_put(root);
         root = json_object_new_object();
-        json_object *ff = json_object_new_object();
-        json_object_object_add(root, "fflags", ff);
+        json_object_object_add(root, "fflags", json_object_new_object());
     }
     return root;
 }
 
-static void saveConfig(const char *path, json_object *root) {
+static void save_config(const char *path, json_object *root) {
+    ensure_directories(path);
     const char *out = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY);
     FILE *fp = fopen(path, "w");
-    if (!fp) exit(1);
-    fputs(out, fp);
-    fclose(fp);
-}
-
-static void printHelp(const char *prog) {
-    printf(
-        "Usage:\n"
-        "  %s add     <FLAG_KEY> <VALUE>\n"
-        "  %s replace <FLAG_KEY> <VALUE>\n"
-        "  %s remove  <FLAG_KEY>\n"
-        "  %s list\n"
-        "  %s clear\n"
-        "  %s path\n"
-        "  %s help\n",
-        prog, prog, prog, prog, prog, prog, prog
-    );
-}
-
-static void cmdList(const char *configPath) {
-    json_object *root = loadConfig(configPath);
-    json_object *ff;
-    if (json_object_object_get_ex(root, "fflags", &ff) &&
-        json_object_get_type(ff) == json_type_object) {
-        printf("%s\n", json_object_to_json_string_ext(ff, JSON_C_TO_STRING_PRETTY));
-    } else {
-        printf("{}\n");
+    if (fp) {
+        fputs(out, fp);
+        fclose(fp);
     }
-    json_object_put(root);
 }
 
-static void cmdAdd(const char *configPath, const char *key, const char *value) {
-    json_object *root = loadConfig(configPath);
-    json_object *ff;
-    if (!json_object_object_get_ex(root, "fflags", &ff) ||
-        json_object_get_type(ff) != json_type_object) {
-        ff = json_object_new_object();
-        json_object_object_add(root, "fflags", ff);
+static void cmd_add_or_replace(const char *path, const char *key, const char *val_str, int replace_only) {
+    if (!is_flag_allowed(key)) {
+        fprintf(stderr, "Error: Flag '%s' is not in the allowed list.\n", key);
+        return;
     }
+
+    json_object *root = load_config(path);
+    json_object *ffs;
+    if (!json_object_object_get_ex(root, "fflags", &ffs)) {
+        ffs = json_object_new_object();
+        json_object_object_add(root, "fflags", ffs);
+    }
+
     json_object *existing = NULL;
-    json_object_object_get_ex(ff, key, &existing);
-    if (!existing) {
-        json_object *val = json_object_new_string(value);
-        json_object_object_add(ff, key, val);
+    int exists = json_object_object_get_ex(ffs, key, &existing);
+
+    if (replace_only && !exists) {
+        printf("Key '%s' does not exist. Use 'add' instead.\n", key);
+    } else {
+        json_object_object_add(ffs, key, json_object_new_string(val_str));
+        save_config(path, root);
+        printf("Successfully set: %s = %s\n", key, val_str);
     }
-    saveConfig(configPath, root);
     json_object_put(root);
-}
-
-static void cmdReplace(const char *configPath, const char *key, const char *value) {
-    json_object *root = loadConfig(configPath);
-    json_object *ff;
-    if (json_object_object_get_ex(root, "fflags", &ff) &&
-        json_object_get_type(ff) == json_type_object) {
-        json_object *existing = NULL;
-        if (json_object_object_get_ex(ff, key, &existing)) {
-            json_object *val = json_object_new_string(value);
-            json_object_object_add(ff, key, val);
-        }
-    }
-    saveConfig(configPath, root);
-    json_object_put(root);
-}
-
-static void cmdRemove(const char *configPath, const char *key) {
-    json_object *root = loadConfig(configPath);
-    json_object *ff;
-    if (json_object_object_get_ex(root, "fflags", &ff) &&
-        json_object_get_type(ff) == json_type_object) {
-        json_object_object_del(ff, key);
-    }
-    saveConfig(configPath, root);
-    json_object_put(root);
-}
-
-static void cmdClear(const char *configPath) {
-    json_object *root = loadConfig(configPath);
-    json_object *ff = json_object_new_object();
-    json_object_object_add(root, "fflags", ff);
-    saveConfig(configPath, root);
-    json_object_put(root);
-}
-
-static void cmdPath(const char *configPath) {
-    printf("%s\n", configPath);
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
-        printHelp(argv[0]);
-        return 1;
-    }
+    char *path = get_config_path();
+    if (!path) return 1;
 
-    char *configPath = getConfigPath();
-    ensureConfigExists(configPath);
+    if (argc < 2) {
+        printf("Usage: %s [add|replace|remove|list|clear|path]\n", argv[0]);
+        free(path);
+        return 0;
+    }
 
     if (strcmp(argv[1], "add") == 0 && argc == 4) {
-        cmdAdd(configPath, argv[2], argv[3]);
-    }
+        cmd_add_or_replace(path, argv[2], argv[3], 0);
+    } 
     else if (strcmp(argv[1], "replace") == 0 && argc == 4) {
-        cmdReplace(configPath, argv[2], argv[3]);
+        cmd_add_or_replace(path, argv[2], argv[3], 1);
     }
     else if (strcmp(argv[1], "remove") == 0 && argc == 3) {
-        cmdRemove(configPath, argv[2]);
+        json_object *root = load_config(path);
+        json_object *ffs;
+        if (json_object_object_get_ex(root, "fflags", &ffs)) {
+            json_object_object_del(ffs, argv[2]);
+            save_config(path, root);
+        }
+        json_object_put(root);
     }
-    else if (strcmp(argv[1], "list") == 0 && argc == 2) {
-        cmdList(configPath);
+    else if (strcmp(argv[1], "list") == 0) {
+        json_object *root = load_config(path);
+        printf("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY));
+        json_object_put(root);
     }
-    else if (strcmp(argv[1], "clear") == 0 && argc == 2) {
-        cmdClear(configPath);
-    }
-    else if (strcmp(argv[1], "path") == 0 && argc == 2) {
-        cmdPath(configPath);
-    }
-    else if (strcmp(argv[1], "help") == 0 && argc == 2) {
-        printHelp(argv[0]);
-    }
-    else {
-        printHelp(argv[0]);
-        free(configPath);
-        return 1;
+    else if (strcmp(argv[1], "path") == 0) {
+        printf("%s\n", path);
     }
 
-    free(configPath);
+    free(path);
     return 0;
 }
