@@ -1,6 +1,8 @@
 #  Sober FFlag Editor (CLI)  
 *A simple command-line tool to manage Roblox FastFlags (FFlags) for the [Sober Linux client](https://github.com/vinegarhq/sober).*
 
+Current released are outdated.
+
 ---
 
 ##  Features
